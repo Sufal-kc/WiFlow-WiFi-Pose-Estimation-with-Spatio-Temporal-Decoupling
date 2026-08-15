@@ -45,12 +45,14 @@ class WiFlowPoseModel(nn.Module):
             nn.Conv2d(64, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.SiLU(inplace=True),
-            nn.Conv2d(32, 2, kernel_size=1),
-            nn.BatchNorm2d(2),
+            # 输出4个通道，表示 baseline 两个端点: [x1,y1,x2,y2]
+            nn.Conv2d(32, 4, kernel_size=1),
+            nn.BatchNorm2d(4),
             nn.SiLU(inplace=True)
         )
 
-        self.avg_pool = nn.AdaptiveAvgPool2d((15, 1))
+        # 全局平均池化到单个向量，用于预测4个值
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
 
         self._initialize_weights()
 
@@ -90,8 +92,7 @@ class WiFlowPoseModel(nn.Module):
         x = self.attention(x)
 
         # 解码
-        x = self.decoder(x)  # [B, 2, 15, 20]
-        x = self.avg_pool(x).squeeze(-1)  # [B, 2, 15]
-        x = x.transpose(1, 2)  # [B, 15, 2]
+        x = self.decoder(x)  # [B, 4, H, W]
+        x = self.avg_pool(x).squeeze(-1).squeeze(-1)  # [B, 4]
 
         return x

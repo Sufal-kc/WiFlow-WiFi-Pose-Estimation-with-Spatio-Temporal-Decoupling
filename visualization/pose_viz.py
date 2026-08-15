@@ -19,17 +19,18 @@ def create_side_by_side_video_opencv(true_keypoints, pred_keypoints, output_file
     from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
     from tqdm import tqdm
 
+    # 现在 true_keypoints / pred_keypoints 为 [T,4] 格式: [x1,y1,x2,y2]
     frames = min(len(true_keypoints), len(pred_keypoints))
-    true_reshaped = true_keypoints[:frames].reshape(frames, -1, 2)
-    pred_reshaped = pred_keypoints[:frames].reshape(frames, -1, 2)
+    true_lines = np.array(true_keypoints[:frames]).reshape(frames, 4)
+    pred_lines = np.array(pred_keypoints[:frames]).reshape(frames, 4)
 
     if keypoint_scale != 1.0:
-        true_reshaped *= keypoint_scale
-        pred_reshaped *= keypoint_scale
+        true_lines *= keypoint_scale
+        pred_lines *= keypoint_scale
 
     # 计算全局范围
-    all_x = np.concatenate([true_reshaped[:, :, 0].flatten(), pred_reshaped[:, :, 0].flatten()])
-    all_y = np.concatenate([true_reshaped[:, :, 1].flatten(), pred_reshaped[:, :, 1].flatten()])
+    all_x = np.concatenate([true_lines[:, [0, 2]].flatten(), pred_lines[:, [0, 2]].flatten()])
+    all_y = np.concatenate([true_lines[:, [1, 3]].flatten(), pred_lines[:, [1, 3]].flatten()])
 
     x_min, x_max = np.min(all_x), np.max(all_x)
     y_min, y_max = np.min(all_y), np.max(all_y)
@@ -48,45 +49,25 @@ def create_side_by_side_video_opencv(true_keypoints, pred_keypoints, output_file
         for frame_idx in range(frames):
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
 
-            # 真实姿态
-            true_kp = true_reshaped[frame_idx]
-            for connection in SKELETON_CONNECTIONS:
-                start_idx, end_idx = connection
-                color = CONNECTION_COLORS.get(connection, 'gray')
-                ax1.plot([true_kp[start_idx, 0], true_kp[end_idx, 0]],
-                        [true_kp[start_idx, 1], true_kp[end_idx, 1]],
-                        color=color, linewidth=3)
-
-            for part_name, indices in KEYPOINT_GROUPS.items():
-                color = BODY_PART_COLORS[part_name]
-                part_keypoints = true_kp[indices]
-                ax1.scatter(part_keypoints[:, 0], part_keypoints[:, 1],
-                           c=color, s=50, edgecolors='black')
+            # 真实基线
+            x1, y1, x2, y2 = true_lines[frame_idx]
+            ax1.plot([x1, x2], [y1, y2], color='blue', linewidth=4)
+            ax1.scatter([x1, x2], [y1, y2], c=['green', 'red'], s=80)
 
             ax1.set_xlim(x_min - x_margin, x_max + x_margin)
             ax1.set_ylim(y_max + y_margin, y_min - y_margin)
-            ax1.set_title(f"True Pose - Frame {frame_idx + 1}", fontsize=14)
+            ax1.set_title(f"True Baseline - Frame {frame_idx + 1}", fontsize=14)
             ax1.set_aspect('equal')
             ax1.axis('off')
 
-            # 预测姿态
-            pred_kp = pred_reshaped[frame_idx]
-            for connection in SKELETON_CONNECTIONS:
-                start_idx, end_idx = connection
-                color = CONNECTION_COLORS.get(connection, 'gray')
-                ax2.plot([pred_kp[start_idx, 0], pred_kp[end_idx, 0]],
-                        [pred_kp[start_idx, 1], pred_kp[end_idx, 1]],
-                        color=color, linewidth=3)
-
-            for part_name, indices in KEYPOINT_GROUPS.items():
-                color = BODY_PART_COLORS[part_name]
-                part_keypoints = pred_kp[indices]
-                ax2.scatter(part_keypoints[:, 0], part_keypoints[:, 1],
-                           c=color, s=50, edgecolors='black')
+            # 预测基线
+            px1, py1, px2, py2 = pred_lines[frame_idx]
+            ax2.plot([px1, px2], [py1, py2], color='orange', linewidth=4)
+            ax2.scatter([px1, px2], [py1, py2], c=['green', 'red'], s=80)
 
             ax2.set_xlim(x_min - x_margin, x_max + x_margin)
             ax2.set_ylim(y_max + y_margin, y_min - y_margin)
-            ax2.set_title(f"Predicted Pose - Frame {frame_idx + 1}", fontsize=14)
+            ax2.set_title(f"Predicted Baseline - Frame {frame_idx + 1}", fontsize=14)
             ax2.set_aspect('equal')
             ax2.axis('off')
 
@@ -112,19 +93,14 @@ def save_all_predictions(true_keypoints, pred_keypoints, output_file="prediction
 
     n_samples = min(len(true_keypoints), len(pred_keypoints))
 
-    columns = []
-    for i in range(15):
-        columns.extend([f"true_kp{i}_x", f"true_kp{i}_y", f"pred_kp{i}_x", f"pred_kp{i}_y"])
-
+    columns = ['true_x1', 'true_y1', 'true_x2', 'true_y2', 'pred_x1', 'pred_y1', 'pred_x2', 'pred_y2']
     data = []
+
     for i in range(n_samples):
-        row = []
-        true_kp = true_keypoints[i].reshape(15, 2) * keypoint_scale
-        pred_kp = pred_keypoints[i].reshape(15, 2) * keypoint_scale
-
-        for j in range(15):
-            row.extend([true_kp[j, 0], true_kp[j, 1], pred_kp[j, 0], pred_kp[j, 1]])
-
+        true_line = np.array(true_keypoints[i]).reshape(4,) * keypoint_scale
+        pred_line = np.array(pred_keypoints[i]).reshape(4,) * keypoint_scale
+        row = [float(true_line[0]), float(true_line[1]), float(true_line[2]), float(true_line[3]),
+               float(pred_line[0]), float(pred_line[1]), float(pred_line[2]), float(pred_line[3])]
         data.append(row)
 
     df = pd.DataFrame(data, columns=columns)
@@ -139,30 +115,29 @@ def calculate_keypoint_errors(true_keypoints, pred_keypoints, keypoint_scale=100
     import pandas as pd
     import numpy as np
 
+    # 现在输入为 baseline endpoints: [N,4]
     n_samples = min(len(true_keypoints), len(pred_keypoints))
+    true_lines = np.array(true_keypoints[:n_samples]).reshape(n_samples, 4) * keypoint_scale
+    pred_lines = np.array(pred_keypoints[:n_samples]).reshape(n_samples, 4) * keypoint_scale
 
-    # 修复：使用reshape确保正确的形状转换
-    true_kp = np.array(true_keypoints[:n_samples]).reshape(n_samples, 15, 2) * keypoint_scale
-    pred_kp = np.array(pred_keypoints[:n_samples]).reshape(n_samples, 15, 2) * keypoint_scale
+    # 计算每个端点的距离 (两端)
+    true_pts = true_lines.reshape(n_samples, 2, 2)
+    pred_pts = pred_lines.reshape(n_samples, 2, 2)
+    distances = np.sqrt(np.sum((true_pts - pred_pts) ** 2, axis=2))  # [N,2]
 
-    distances = np.sqrt(np.sum((true_kp - pred_kp) ** 2, axis=2))
+    stats = []
+    for endpoint_idx in range(2):
+        d = distances[:, endpoint_idx]
+        stats.append({
+            'endpoint': endpoint_idx,
+            'mean_error': float(np.mean(d)),
+            'median_error': float(np.median(d)),
+            'std_error': float(np.std(d)),
+            'min_error': float(np.min(d)),
+            'max_error': float(np.max(d))
+        })
 
-    keypoint_stats = []
-    for i in range(15):
-        kp_distances = distances[:, i]
-        stats = {
-            'keypoint_id': i,
-            'keypoint_name': KEYPOINT_NAMES.get(i, f"关键点 {i}"),
-            'body_part': next((part for part, ids in KEYPOINT_GROUPS.items() if i in ids), "未知"),
-            'mean_error': np.mean(kp_distances),
-            'median_error': np.median(kp_distances),
-            'std_error': np.std(kp_distances),
-            'min_error': np.min(kp_distances),
-            'max_error': np.max(kp_distances)
-        }
-        keypoint_stats.append(stats)
-
-    df = pd.DataFrame(keypoint_stats)
+    df = pd.DataFrame(stats)
     return df
 
 def plot_training_history(history, output_dir="vis_results"):

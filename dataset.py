@@ -235,7 +235,28 @@ class PreprocessedCSIKeypointsDataset(Dataset):
 
         # 转换为张量
         csi_tensor = torch.from_numpy(csi_window).float()
-        keypoint_tensor = torch.from_numpy(keypoint).float()
+
+        # 将关键点转换为基线(line)的两个端点: [x1, y1, x2, y2]
+        def _keypoints_to_baseline(kp: np.ndarray) -> np.ndarray:
+            # kp: (N,2)
+            try:
+                mask = ~((kp[:, 0] == 0) & (kp[:, 1] == 0))
+                pts = kp[mask]
+                if pts.shape[0] < 2:
+                    return np.zeros((4,), dtype=np.float32)
+
+                # 线性回归 y = a*x + b
+                a, b = np.polyfit(pts[:, 0], pts[:, 1], 1)
+                x_min = float(pts[:, 0].min())
+                x_max = float(pts[:, 0].max())
+                y1 = a * x_min + b
+                y2 = a * x_max + b
+                return np.array([x_min, y1, x_max, y2], dtype=np.float32)
+            except Exception:
+                return np.zeros((4,), dtype=np.float32)
+
+        baseline = _keypoints_to_baseline(keypoint)
+        keypoint_tensor = torch.from_numpy(baseline).float()
 
         # 应用变换
         if self.transform:
